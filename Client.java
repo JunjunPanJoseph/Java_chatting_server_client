@@ -1,281 +1,426 @@
-package ass2;
+package assignment;
 
 import java.io.*;
-import java.util.*;
 import java.net.*;
+import java.util.*;
+
+import assignment.P2P.ClientUser;
 
 public class Client {
+	private String username;
+	private String authcode;
 	
-	public static void main(String[] args) throws IOException {
-		String server_IP = "0.0.0.0";
-        int server_port = 12345;
-        List<String> remove_list = new ArrayList<>();
-        // Read command line arguments
-        if(args.length != 2){
-        	Global.printToConsole("Usage: java Client server_IP server_port\n");
-            // System.exit(1);
-        } else {
-        	server_IP = args[0];
-        	server_port = Integer.parseInt(args[1]);
-        }
-        int i = 0;
-        BufferedReader stdinReader = new BufferedReader(new InputStreamReader(System.in));
-        
-        Socket socket = null;
-        BufferedReader clientIn = null; 
-        DataOutputStream clientOut = null;
-        
-        
-        String name = "";
-        String token = "";
-        Message message = null;
-        
-        P2PServer p2pServer = null;
-        // Infinity loop
-        while (true) {
-        	
-        	// read keyboard input
-        	boolean loginSuccess = false;
-        	while (!loginSuccess) {
-        		System.out.print("Username: ");
-				String username = stdinReader.readLine().trim();
-        		System.out.print("Password: ");
-	        	String password = stdinReader.readLine().trim();
-	        	socket = new Socket(server_IP, server_port);
-	        	clientIn = new BufferedReader(new InputStreamReader(socket.getInputStream()));
-	    		clientOut = new DataOutputStream(socket.getOutputStream());
-	    		// Encode message and send to server
-	    		message = new Message();
-	    		message.type = "login";
-	    		message.sender = username;
-	    		message.password = password;
-	    		
-	    		Global.sendMessage(clientOut, message);
-	    		
-	    		// Receive message from server
-	    		message = Global.getMessageFromInputBuffer(1, clientIn, null);
-	    		// Global.printToConsole(message.toString());
-	    		if (message == null) {
-	    			// Error. 
-    				Global.errorInvalidMessage(null, null);
-	    		} else {
-	    			switch (message.type) {
-	    			case "login":
-	    				// Success
-	    				loginSuccess = true;
-	    				name = username.trim();
-	    				token = message.token;
-	    				break;
-	    			case "error":
-		    			// Failed
-	    				Global.printToConsole(message.message);
-	    				socket.close();
-		    			break;
-	    			default:
-		    			// default
-	    				socket.close();
-		    			break;
-	    			}
-	    		}
-        	}
-        	// P2P server
-        	p2pServer = new P2PServer(name);
-        	
-        	message = new Message();
-        	message.sender = name;
-        	message.token = token;
-        	message.type = "ip";
-        	message.ip = p2pServer.getIpAddr();
-        	message.port = p2pServer.getPort() + "";
-    		Global.sendMessage(clientOut, message);
-    		
-    		
-        	Global.printToConsole("Welcome to the greatest messaging application ever!");
-        	// Main loop
-        	boolean online = true;
-        	while (online) {
-        		remove_list.clear();
-            	// Handle message from server
-				if (socket.getInputStream().available() > 0) {
-		    		message = Global.getMessageFromInputBuffer(1, clientIn, null);
-		    		if (message != null) {
-			    		switch (message.type) {
-			    		case "error":
-		    				Global.printToConsole(message.message);
-		    				if (message.message.equals("Timeout")) {
-		    					online = false;
-		    				}
-			    			break;
-			    		case "message":
-			    			Global.printToConsole(message.sender + ": " + message.message);
-			    			break;
-			    		case "whoelse":
-			    			String[] onlineList = message.message.split(" ");
-			    			for (String username: onlineList) {
-				    			Global.printToConsole(username);
-			    			}
-			    			break;
-			    		case "startprivate":
-			    			p2pServer.connectToPeer(message.user, message.ip, message.port);
-			    			break;
-			    		default:
-			    			Global.errorInvalidMessage(null, message);
-		    				break;
-			    		}
-		    		}
-				}
-				if (online == false) {
-					break;
-				}
-				// Handle keyboard input
-				message = new Message();
-				message.sender = name;
-				message.token = token;
-				if (System.in.available() > 0) {
-					String inputString = stdinReader.readLine().trim();
-					String[] splitedString = inputString.split(" ");
-					switch (splitedString[0]) {
-					case "logout":
-						message.type = "logout";
-						break;
-					case "message":
-						if (splitedString.length < 3) {
-			    			Global.printToConsole("Usage: message <user> <message>");
-						} else if (splitedString[1].trim().equals(name)){
-							Global.printToConsole("Error. Cannot send message to youself!");
-						} else {
-							message.type = "message";
-							message.user = splitedString[1];
-							message.message = getMessage(splitedString, 2);
-						}
-						break;
-					case "broadcast":
-						if (splitedString.length < 2) {
-			    			Global.printToConsole("Usage: broadcast <message>");
-						} else {
-							message.type = "broadcast";
-							message.message = getMessage(splitedString, 1);
-						}
-						break;
-					case "whoelse":
-						if (splitedString.length != 1) {
-			    			Global.printToConsole("Usage: whoelse");
-						} else {
-							message.type = "whoelse";
-						}
-						break;
-					case "whoelsesince":
-						if (splitedString.length != 2) {
-			    			Global.printToConsole("Usage: whoelsesince <time_in_second>");
-						} else {
-							try {
-								message.time = "" + Long.valueOf(splitedString[1]);
-								message.type = "whoelsesince";
-							} catch (NumberFormatException e) {
-				    			Global.printToConsole("Error: Invalid time format");
-							}
-						}
-						break;
-					case "block":
-						if (splitedString.length != 2) {
-			    			Global.printToConsole("Usage: block <user_name>");
-						} else {
-							message.type = "block";
-							message.user = splitedString[1];
-						}
-						break;
-					case "unblock":
-						if (splitedString.length != 2) {
-			    			Global.printToConsole("Usage: unblock <user_name>");
-						} else {
-							message.type = "unblock";
-							message.user = splitedString[1];
-						}
-						break;
-					case "startprivate":
-						// TODO: extra check on connection stage.
-						if (splitedString.length != 2) {
-			    			Global.printToConsole("Usage: startprivate <user_name>");
-						} else if (splitedString[1].trim().equals(name)){
-							Global.printToConsole("Error. Cannot connect to youself!");
-						} else {
-							if (!p2pServer.getUsers().containsKey(splitedString[1].trim())) {
-								message.type = "startprivate";
-								message.user = splitedString[1];
-							} else {
-				    			Global.printToConsole("Error. P2P connection is already start with " + splitedString[1]);
-							}
-						}
-						break;
-					case "stopprivate":
-						if (splitedString.length != 2) {
-			    			Global.printToConsole("Usage: stopprivate <user_name>");
-						} else if (splitedString[1].trim().equals(name)){
-							Global.printToConsole("Error. Cannot stop connect to youself!");
-						} else if (!p2pServer.getUsers().containsKey(splitedString[1].trim())){
-							Global.printToConsole("Error. Private messaging to hans not enabled. ");
-						} else {
-							message.type = "private";
-							message.token = "stop";
-							message.message = "stop, please";
-							p2pServer.sendMessageToPeer(splitedString[1].trim(), message);
-							remove_list.add(splitedString[1].trim());
-							Global.printToConsole("Stop private messaging with " + splitedString[1].trim());
-							message.type = "";
-						}
-						break;
-					case "private":
-						if (splitedString.length < 3) {
-			    			Global.printToConsole("Usage: private <user_name> message");
-						} else if (splitedString[1].trim().equals(name)){
-							Global.printToConsole("Error. Cannot send private message to youself!");
-						} else  {
-							message.type = "private";
-							message.message = getMessage(splitedString, 2);
-							p2pServer.sendMessageToPeer(splitedString[1].trim(), message);
-							message.type = "";
-						}
-						break;
-		    		default:
-		    			if (!inputString.equals("")) {
-		    				Global.printToConsole("Error. Invalid command");
-		    			}
-	    				break;
-					}
-					if (!message.type.equals("")) {
-						// Send to server
-						Global.sendMessage(clientOut, message);
-						if (message.type.equals("logout")) {
-							online = false;
-							p2pServer.serverStop();
-						}
-					}
-				}
-				if (online == false) {
-					break;
-				}
-        		// Handle server input
-				p2pServer.handleServerMessage();
-				for (User user: p2pServer.getUsers().values()) {
-					if (user.connected == false) {
-						remove_list.add(user.name);
-					}
-				}
-				for (String t: remove_list) {
-					p2pServer.getUsers().get(t).closeSocket();
-					p2pServer.getUsers().remove(t);
-				}
-				
-        	}
-        }
+	private Socket socket;
+	private DataInputStream inStream;
+	private DataOutputStream outStream;
+
+	
+	private ServerSocket serverSocket; 
+    private DataInputStream in;
+	private DataOutputStream out;
+    
+    public Map<String, ClientUser> userMap;
+    
+	public Client(String username, String authcode) {
+		this.username = username;
+		this.authcode = authcode;
+		this.userMap = new HashMap<>();
+		this.serverSocket = null;
 	}
 
-	public static String getMessage(String[] splitedString, int i) {
-		String str = "";
-		while (i < splitedString.length) {
-			str += splitedString[i] + " ";
-			i++;
+
+	private void setServerSocket() {
+		try {
+			this.serverSocket = new ServerSocket(0);
+			serverSocket.setSoTimeout(100);
+		} catch (IOException e) {
+			System.out.println("Error: fail to create p2p server");
+			this.serverSocket = null;
 		}
-		return str.trim();
 	}
+	
+	public void removeClientUser(String username) {
+		userMap.remove(username);
+	}
+	
+	public void setSocket(Socket clientSocket) {
+		this.socket = clientSocket;
+	}	
+	public String getName() {
+		return username;
+	}
+	public String getAuthcode() {
+		return authcode;
+	}
+	
+	public void setDataInputStream(DataInputStream in) {
+		this.inStream = in;
+		this.in = new DataInputStream(this.inStream);
+	}
+	public void setDataOutputStream(DataOutputStream out) {
+		this.outStream = out;
+		this.out = new DataOutputStream(this.outStream);
+	}
+
+	public void logoff() {
+		for (ClientUser user: userMap.values()) {
+			user.stopPrivate();
+		}
+
+		String[] code = {"3", username, authcode};
+		sendMsgToStream(code);
+	}
+	
+	public void sendMsgToStream(String[] args) {
+		try {
+			String line = EncodeDecode.encode(args);
+			// System.out.println("Server send: " + line);
+			out.writeBytes(line);
+		} catch (IOException e) {
+			System.out.println("Error: IO exception in sendMsgToStream");
+		}
+	}
+	
+	public static void main(String[] args) throws Exception {
+		InetAddress IPAddress;
+		int serverPort;
+		if(args.length != 2){
+	        System.out.println("Usage: java UDPClinet localhost PortNo");
+	        // System.exit(1);
+		    IPAddress = InetAddress.getByName("0.0.0.0");
+		    serverPort = 5001;
+	    } else {
+
+			// Define socket parameters, address and Port No
+		    IPAddress = InetAddress.getByName(args[0]);
+		    serverPort = Integer.parseInt(args[1]);
+		    
+	    	
+	    }
+        Socket clientSocket;
+        OutputStream outToServer;
+        DataOutputStream out;
+        InputStream inFromServer;
+        DataInputStream in = null;
+        Scanner inStream = new Scanner(System.in);
+        BufferedReader bufferedReader = new BufferedReader(new InputStreamReader(System.in));
+        
+        // Login loop
+        
+        Client client;
+    	do {
+	        client = null;
+	        while (client == null) {
+	    		System.out.print("Username: ");
+	    		String username = inStream.nextLine().trim();
+	    		System.out.print("Password: ");
+	    		String password = inStream.nextLine().trim();
+				String[] code = {"0", username, password};
+
+	            clientSocket = new Socket(IPAddress, serverPort);
+	            outToServer = clientSocket.getOutputStream();
+	            out = new DataOutputStream(outToServer);
+	            inFromServer = clientSocket.getInputStream();
+	            in = new DataInputStream(inFromServer);
+	    		
+	            out.writeBytes(EncodeDecode.encode(code));
+	    		
+	    		String returnLine = in.readLine();
+	    		String[] lineDecode = EncodeDecode.decode(returnLine);
+	    		System.out.println(returnLine);
+	    		switch (lineDecode[0]) {
+	    		case "2":
+	    			// Success
+	    			System.out.println("Welcome to the greatest messaging application ever!");
+	    			client = new Client(username, lineDecode[1]);
+	    			client.setSocket(clientSocket);
+	    			client.setServerSocket();
+	    			client.setDataOutputStream(out);
+	    			client.setDataInputStream(in);
+	    			break;
+	    		case "1":
+	    			// Failed
+	    			switch(lineDecode[1]) {
+	    			case "-1":
+						// Repeated login
+	    				System.out.println("This account is loggined in other terminal. Please contact admin. ");
+	    				break;
+	    			case "3":
+	    				// Blocked
+		    			System.out.println("Invalid Password. Your account has been blocked. Please try again later");
+	    				break;
+	    			case "1":
+	    			case "2":
+					default:
+						// Invalid password;
+		    			System.out.println("Invalid Password. ");
+		    			break;
+	    			}
+	    			
+	    			clientSocket.close();
+					break;
+					
+	    		case "-1":
+	    			System.out.println(lineDecode[1]);
+	    			clientSocket.close();
+	    			break;
+				default:
+					System.out.println("Error: unexpected return format! [" + returnLine + "]");
+	    			clientSocket.close();
+					System.exit(1);
+	    		}
+	    	} 
+	    	System.out.println("Login success!");
+	    	
+            String input;
+	    	boolean logged = true;
+            
+            
+            
+	    	while (logged) {
+                // Keyboard input
+	    		if (System.in.available() > 0) {		  
+
+		    		input = bufferedReader.readLine();
+		    		if (input.compareTo("Exit") == 0) {
+		    			client.logoff();
+		    			
+		    			System.exit(0);
+		    		}
+		    		String[] strs = input.split(" ");
+		    		String username;
+		    		String message;
+		    		int time;
+		    		
+		    		switch (strs[0]) {
+		    		case "message":
+		    			if (strs.length < 3) {
+		    				error("message <user> <message>");
+		    			} else {
+		    				username = strs[1];
+		    				message = input.substring(strs[0].length() + strs[1].length() + 2);
+		    				String[] code = {"4", 
+		    						client.getName(), 
+		    						client.getAuthcode(), 
+		    						username, 
+		    						message};
+		    				client.sendMsgToStream(code);
+		    			}
+		    			break;
+		    		case "broadcast":
+		    			if (strs.length < 2) {
+		    				error("broadcast <message> ");
+		    			} else {
+		    				message = input.substring(strs[0].length() + 1);
+		    				String[] code = {"5", 
+		    						client.getName(), 
+		    						client.getAuthcode(), 
+		    						message};
+		    				client.sendMsgToStream(code);
+		    			}
+		    			break;
+		    		case "whoelse":
+		    			if (strs.length != 1) {
+		    				error("whoelse");
+		    			} else {
+		    				String[] code = {"6", 
+		    						client.getName(), 
+		    						client.getAuthcode(), 
+		    						"0"
+		    				};
+		    				client.sendMsgToStream(code);
+		    			}
+		    			break;
+		    		case "whoelsesince":
+		    			if (strs.length != 2) {
+		    				error("whoelsesince <time>");
+		    			} else {
+		    				try {
+		    					
+		    					time = Integer.parseInt(strs[1]);
+			    				String[] code = {"6", 
+			    						client.getName(), 
+			    						client.getAuthcode(), 
+			    						"" + time
+			    				};
+			    				client.sendMsgToStream(code);
+		    					
+		    				} catch (Exception e){
+			    				error("<time> need be integer ");
+		    				}
+		    			}
+		    			break;
+		    		case "block":
+		    			if (strs.length != 2) {
+		    				error("block <user>");
+		    			} else {
+		    				username = strs[1];
+		    				String[] code = {"7", 
+		    						client.getName(), 
+		    						client.getAuthcode(), 
+		    						username
+		    				};
+		    				client.sendMsgToStream(code);
+		    			}
+		    			break;
+		    		case "unblock":
+		    			if (strs.length != 2) {
+		    				error("unblock <user>");
+		    			} else {
+		    				username = strs[1];
+		    				String[] code = {"8", 
+		    						client.getName(), 
+		    						client.getAuthcode(), 
+		    						username
+		    				};
+		    				client.sendMsgToStream(code);
+		    			}
+		    			break;
+		    		case "logout":
+		    			client.logoff();
+		    			logged = false;
+		    			break;
+		    		case "startprivate":
+	    				username = strs[1];
+	    				if (client.userMap.containsKey(username)) {
+	    					System.out.println("Error: Private messaging to " + username + " enabled ");
+	    				} else {
+		    				String[] code = {"9", 
+		    						client.getName(), 
+		    						client.getAuthcode(), 
+		    						username
+		    				};
+		    				client.sendMsgToStream(code);
+			    			break;
+	    				}
+		    		case "private":
+		    			if (strs.length >= 3) {
+		    				username = strs[1].trim();
+		    				message = input.substring(strs[0].length() + strs[1].length() + 2);
+		    				if (!client.userMap.containsKey(username)) {
+		    					System.out.println("Error: Private messaging to " + username + " not enabled ");
+		    				} else if (!client.userMap.get(username).running()) {
+		    					System.out.println("Error: " + username + " socket is not running");
+		    				} else {
+		    					if (!client.userMap.get(username).sendPrivateMessage(message)) {
+		    						System.out.println("Error: send message failed");
+		    					}
+		    				}
+		    			} else {
+		    				System.out.println("Error: no msg entered.");
+		    			}
+		    			break;
+		    		case "stopprivate":
+	    				username = strs[1];
+	    				if (!client.userMap.containsKey(username)) {
+	    					System.out.println("Error: Private messaging to " + username + " not enabled ");
+	    				} else if (!client.userMap.get(username).running()) {
+	    					System.out.println("Error: " + username + " socket is not running");
+	    				} else {
+	    					if (client.userMap.get(username).stopPrivate()) {
+	    						System.out.println("Stop private connection with " + username);
+	    					} else {
+								System.out.println("Error. stop private failed");
+	    					}
+	    				}
+		    			break;
+					default:
+						if (input.compareTo("") != 0) {
+							System.out.println("Error. Invalid command");
+						}
+						break;
+		    		
+		    		}
+	    		} 
+	    		
+                // Processing server message
+	    		if (in.available() > 0) {
+		    		String returnLine = in.readLine();
+		    		String[] lineDecode = EncodeDecode.decode(returnLine);
+		    		
+		    		switch (lineDecode[0]) {
+		    		case "-1":
+		    			// Server message
+		    			System.out.println(lineDecode[1]);
+		    			if (lineDecode[1].compareTo("Timeout.") == 0) {
+		    				// Log out
+		    				logged = false;
+                            // ======== 
+                            client.logoff();
+		    			}
+		    			break;
+		    		case "4":
+		    			// Message from players
+		    			System.out.println(lineDecode[1] + ": " + lineDecode[2]);
+		    			break;
+		    		case "6":
+		    			// users list
+		    			int i = 1;
+		    			while (i < lineDecode.length) {
+		    				System.out.println(lineDecode[i]);
+		    				i++;
+		    			}
+		    			break;
+		    		case "9":
+		    			// prepare for connection, send ip, port to user
+		    			// accept format: 9 username
+		    			// send format: 10 username authcode user ip port
+	    				String[] code = {"10", 
+	    						client.getName(), 
+	    						client.getAuthcode(), 
+	    						lineDecode[1], 
+	    						client.serverSocket.getInetAddress().toString(), 
+	    						"" + client.serverSocket.getLocalPort()
+	    				};
+	    				client.sendMsgToStream(code);
+		    			
+		    			break;
+		    		case "10":
+		    			// accept format: 10 username ip port  
+		    			// create client and connect to server
+		    			ClientUser newUser = new ClientUser(client, lineDecode[1]);
+		    			if (!newUser.connectTo(lineDecode[2], Integer.parseInt(lineDecode[3]))) {
+		    				// Fail to connect 
+		    				System.out.println("Error: fail to connect to user: " + lineDecode[1]);
+		    			} else {
+		    				System.out.println("Start private messaging	with " + lineDecode[1]);
+		    				newUser.sendMsgToStream(client.username + "\n");
+		    				client.userMap.put(lineDecode[1], newUser);
+		    			}
+		    			break;
+		    		}
+	    		}
+	    		// Server socket
+                try {
+					// New connection 
+					Socket newConnection = client.serverSocket.accept();
+
+	    			System.out.println("Accept connection! ");
+	    			ClientUser newUser = new ClientUser(client, "");
+	    			newUser.setSocket(newConnection);
+	    			System.out.println("Accept connection from " + newUser.name);
+	    			client.userMap.put(newUser.name, newUser);
+				} catch (Exception e){
+				} 
+	    		// Polling
+				List<String> removeList = new ArrayList<>();
+				for (ClientUser user: client.userMap.values()) {
+					if (user.running()) {
+						user.processMessage();
+					}
+					if (!user.running()) {
+						removeList.add(user.name);
+					}
+				}
+				// remove users that are free
+				for (String name: removeList) {
+					client.userMap.remove(name);
+				}
+	    	}
+    	} while(true);
+	}
+	private static void error(String string) {
+		System.out.println(string);		
+	}
+
 }
